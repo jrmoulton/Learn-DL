@@ -5,6 +5,7 @@ from sklearn.preprocessing import OneHotEncoder
 
 class Dense:
     def __init__(self, h_layers, n_outputs, img_rows, img_cols, act_funcs=[]):
+        # TODO clean up the init method
         self.img_size = img_rows * img_cols
         # Done this way for clarity of user
         self.h_layers = h_layers.append(n_outputs)
@@ -57,7 +58,7 @@ class Dense:
                 inp = self.act_funcs[i](np.dot(inp, w) + b)
             return inp
 
-    def train(self, data, labels, epochs=500, batch_size=10):
+    def train(self, data, labels, epochs=500, batch_size=10, lr=.22):
         self.data = data
         self.labels = labels
         self.batch_error = []
@@ -73,40 +74,45 @@ class Dense:
                 img_d_b = []
                 img_d_w = []
 
+                # TODO Change the loss function (really only affects the outcome in the computed gradient)
                 loss = (a[-1] - label) ** 2
                 self.batch_error.append(loss.mean())
 
                 # set the final activ. grad. to deriv of loss function evaluated with activation of final layer == result of network
                 d_a = (a[-1] - label) * 2
-                d_z = 0  # derivaties for current z_nodes
+                # derivaties for current z_nodes
+                d_z = 0
                 for i in range(1, len(z)+1):
-                    # d_a[-1]
-                    # evaluate the derivative of z_nodes using the derivative of the activ. func used, evaluated at zL, and mult. by the leading grad, because of chain rule, that is stored at d_a[i]
+                    # evaluate the derivative of z_nodes using the derivative of the activ. func used, evaluated at zL, and mult. by the leading grad, because of chain                         rule, that is stored at d_a[i]
                     d_z = self.act_funcs_prime[-i](z[-i]) * d_a
-
                     # The grad. of biases is just that of z_nodes
                     img_d_b.append(d_z)
-                    # TODO There probalby is a numpy operation that could replace this for loop
-                    layer_d_w = []
-                    for a_l in a[-i-1]:
-                        layer_d_w.append(a_l * d_z)
-                    img_d_w.append(np.array(layer_d_w))
+                    # compute the grads for each weight by multiplying the previous grads (d_z) by the actvs. in previous layer
+                    # This creates multiple copies of the activations list so that each can be multiplied element-wise by the prev grads
+                    layer_d = np.array([a[-i-1]] * len(d_z)).T * d_z
+                    img_d_w.append(layer_d)
                     d_a = np.dot(d_z, self.weights[-i].T)
                 batch_d_b.append(img_d_b)
                 batch_d_w.append(np.array(img_d_w))
 
-            batch_d_w = np.array(batch_d_w).mean(axis=0) * .01
-            batch_d_b = np.array(batch_d_b).mean(axis=0) * .01
+            # Compute the average gradient across the mini-batch for weights and biases and mult. by learning rate
+            batch_d_w = np.array(batch_d_w).mean(axis=0) * lr
+            batch_d_b = np.array(batch_d_b).mean(axis=0) * lr
 
+            # Update the network weights and biases by subtracting the gradients which are stored in reverse order
             self.weights = self.weights - batch_d_w[::-1]
             self.biases = self.biases - batch_d_b[::-1]
 
+            # Log the average error from that batch
             self.train_error.append(np.array(self.batch_error).mean())
 
     def _get_batch(self, batch_size):
-        # indices = np.random.randint(len(self.data), size=batch_size)
-        indices = [121, 122]
+        """Internal function to get a mini-batch"""
+        indices = np.random.randint(len(self.data), size=batch_size)
+        # indices = [231] # Used occasionaly to ensure the netowork can overfit
         return self.data[indices].reshape(batch_size, 784), self.labels[indices]
+
+    # Define the activation functions and their derivatives
 
     def relu(self, inp):
         return np.maximum(inp,  0)
