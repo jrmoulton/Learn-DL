@@ -4,32 +4,41 @@ from sklearn.preprocessing import OneHotEncoder
 
 
 class Dense:
-    def __init__(self, h_layers, n_outputs, img_rows, img_cols, act_funcs=[]):
+    def __init__(self, h_layers, n_outputs, img_rows, img_cols, act_funcs):
+
         # TODO clean up the init method
+
         self.img_size = img_rows * img_cols
-        # Done this way for clarity of user
+
+        # n_outputs is appended this way for clarity of user
         self.h_layers = h_layers.append(n_outputs)
+
         self.n_layers = len(h_layers)
+
+        # train_error with track the average loss after each mini-batch
+        self.train_error = []
+
+        # Create list of activation funcs and list of derivatives of activation funcs
+        act_func_dict = {"relu": self.relu,
+                         "sigmoid": self.sigmoid, "softmax": self.softmax}
         if act_funcs:
             self.act_funcs = []
-            for act_func in act_funcs:
-                if act_func == "relu":
-                    self.act_funcs.append(self.relu)
-                elif act_func == "sigmoid":
-                    self.act_funcs.append(self.sigmoid)
-                elif act_func == "sofmax":
-                    self.act_funcs.append(self.softmax)
+            for func in act_funcs:
+                self.act_funcs.append(act_func_dict[func])
         else:
-            self.act_funcs = [self.relu for _ in range(self.n_layers)]
-            self.act_funcs[-1] = self.sigmoid
-        act_func_dict = {self.relu: self.relu_prime,
-                         self.sigmoid: self.sigmoid_prime, self.softmax: self.softmax_prime}
+            self.act_funcs = [self.sigmoid for _ in range(self.n_layers)]
+        act_func_prime_dict = {self.relu: self.relu_prime,
+                               self.sigmoid: self.sigmoid_prime, self.softmax: self.softmax_prime}
         self.act_funcs_prime = []
         for func in self.act_funcs:
-            self.act_funcs_prime.append(act_func_dict[func])
+            self.act_funcs_prime.append(act_func_prime_dict[func])
         assert len(self.act_funcs) == self.n_layers
 
-        # initialize weights with std. deviation that divides the random initializations by the sqrt of the number of inputs / 2
+        # Initialize biases to random initialization in shape of hidden layers
+        self.biases = np.array([np.random.randn(y) for y in h_layers])
+
+        # initialize weights with std. deviation that divides the random initializations
+        # by the sqrt of the number of inputs / 2
         # see cs231n Andrej Karpathy time-stamp 49:00 https://youtu.be/gYpoJMlgyXA?t=2942
         self.weights = [np.random.randn(
             self.img_size, h_layers[0]) / np.sqrt(self.img_size/2)]
@@ -37,10 +46,11 @@ class Dense:
             self.weights.append(np.random.randn(
                 h_layers[i], h_layers[i+1]) / np.sqrt(h_layers[i] / 2))
         self.weights = np.array(self.weights)
-        self.biases = np.array([np.random.randn(y) for y in h_layers])
-        self.train_error = []
 
     def forward(self, inp, train=False):
+        """Passes flattened data through a the weights and biases and returns the output. 
+        When train=True it also returns the activations and z_values for each layer"""
+
         zipped = list(zip(self.biases, self.weights))
         if train:
             z = []
@@ -75,31 +85,44 @@ class Dense:
                 img_d_w = []
 
                 # TODO Change the loss function (really only affects the outcome in the computed gradient)
-                loss = (a[-1] - label) ** 2
+                loss = -np.sum(label * np.log(a[-1]))
+                #loss = (a[-1] - label)
                 self.batch_error.append(loss.mean())
 
-                # set the final activ. grad. to deriv of loss function evaluated with activation of final layer == result of network
-                d_a = (a[-1] - label) * 2
+                # set the final activ. grad. to deriv of loss function evaluated
+                # with activation of final layer == result of network
+                d_a = a[-1] - label
+
                 # derivaties for current z_nodes
                 d_z = 0
                 for i in range(1, len(z)+1):
-                    # evaluate the derivative of z_nodes using the derivative of the activ. func used, evaluated at zL, and mult. by the leading grad, because of chain                         rule, that is stored at d_a[i]
+
+                    # evaluate the derivative of z_nodes using the derivative of the activ. func used,
+                    # evaluated at zL, and mult. by the leading grad, because of chain rule,
+                    # that is stored at d_a[i]
                     d_z = self.act_funcs_prime[-i](z[-i]) * d_a
+
                     # The grad. of biases is just that of z_nodes
                     img_d_b.append(d_z)
-                    # compute the grads for each weight by multiplying the previous grads (d_z) by the actvs. in previous layer
-                    # This creates multiple copies of the activations list so that each can be multiplied element-wise by the prev grads
+
+                    # compute the grads for each weight by multiplying the previous grads
+                    # (d_z) by the actvs. in previous layer
+                    # This creates multiple copies of the activations list so that each
+                    # can be multiplied element-wise by the prev grads
                     layer_d = np.array([a[-i-1]] * len(d_z)).T * d_z
                     img_d_w.append(layer_d)
                     d_a = np.dot(d_z, self.weights[-i].T)
+
                 batch_d_b.append(img_d_b)
                 batch_d_w.append(np.array(img_d_w))
 
-            # Compute the average gradient across the mini-batch for weights and biases and mult. by learning rate
+            # Compute the average gradient across the mini-batch for weights and biases
+            # and mult. by learning rate
             batch_d_w = np.array(batch_d_w).mean(axis=0) * lr
             batch_d_b = np.array(batch_d_b).mean(axis=0) * lr
 
-            # Update the network weights and biases by subtracting the gradients which are stored in reverse order
+            # Update the network weights and biases by subtracting the gradients, which
+            # are stored in reverse order
             self.weights = self.weights - batch_d_w[::-1]
             self.biases = self.biases - batch_d_b[::-1]
 
@@ -109,7 +132,7 @@ class Dense:
     def _get_batch(self, batch_size):
         """Internal function to get a mini-batch"""
         indices = np.random.randint(len(self.data), size=batch_size)
-        # indices = [231] # Used occasionaly to ensure the netowork can overfit
+        # indices = [3305]  # Used occasionaly to ensure the network can overfit
         return self.data[indices].reshape(batch_size, 784), self.labels[indices]
 
     # Define the activation functions and their derivatives
@@ -123,10 +146,22 @@ class Dense:
         return inp
 
     def softmax(self, inp):
-        return (np.e ** inp) / (sum(np.e ** inp))
+        e_x = np.exp(inp - np.max(inp))
+        return e_x / e_x.sum(axis=0)
 
-    def softmax_prime(self, inp):
-        pass
+    def softmax_prime(self, z):
+        """Computes the gradient of the softmax function.
+        z: (T, 1) array of input values where the gradient is computed. T is the
+        number of output classes.
+        Returns D (T, T) the Jacobian matrix of softmax(z) at the given z. D[i, j]
+        is DjSi - the partial derivative of Si w.r.t. input j.
+        """
+        Sz = self.softmax(z)
+        # -SjSi can be computed using an outer product between Sz and itself. Then
+        # we add back Si for the i=j cases by adding a diagonal matrix with the
+        # values of Si on its diagonal.
+        D = -np.outer(Sz, Sz) + np.diag(Sz.flatten())
+        return D
 
     def sigmoid(self, inp):
         return 1.0/(1.0+np.exp(-inp))
@@ -151,8 +186,8 @@ x = scale(x)
 enc = OneHotEncoder()
 y = enc.fit_transform(y.values.reshape(-1, 1)).toarray()
 
-temp = Dense([16], 10, 28, 28, ["relu", "sigmoid"])
+temp = Dense([10, 10], 10, 28, 28, ["relu", "relu", "softmax"])
 
-temp.train(x, y, 500, 2)
+temp.train(x, y, 500, 30, .1)
 
 # print(temp.)
