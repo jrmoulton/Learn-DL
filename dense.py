@@ -55,6 +55,7 @@ class Dense:
         When train=True it also returns the activations and z_values for each layer"""
 
         zipped_b_w = list(zip(self.biases, self.weights))
+
         if train:
             z = []
             a = [inp]
